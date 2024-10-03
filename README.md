@@ -13,7 +13,7 @@ Os principais objetivo de implementações desse tipo são:
 
 O workflow do GitHub Actions é estruturada da seguinte forma:
 1. **Eventos**
-   - O workflow é disparado nos eventos de `push` e `pull_request` no repositório da aplicação.
+   - O workflow é disparado nos eventos de `push` e `pull request` no repositório da aplicação. Também é possível executar sob demanda quando o dono do repositório solicitar.
 
 2. **Jobs**
    - **Build:** O primeiro job faz o build da aplicação.
