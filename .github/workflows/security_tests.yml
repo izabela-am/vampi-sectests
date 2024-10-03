@@ -1,0 +1,80 @@
+name: Security Scans
+
+on:
+  pull_request: {}
+  workflow_dispatch: {}
+  push:
+    branches: ["master", "main"]
+    
+jobs:
+  sast:
+    name: semgrep
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep
+    if: (github.actor != 'dependabot[bot]')
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Perform Semgrep Analysis
+        run: semgrep scan -q --sarif --config auto . > semgrep-results.sarif
+
+      - name: Save SARIF results as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: semgrep-scan-results
+          path: semgrep-results.sarif
+
+      - name: Upload SARIF result to the GitHub Security Dashboard
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: semgrep-results.sarif
+        if: always()
+
+  dast:
+    runs-on: ubuntu-latest
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Set up OWASP ZAP Proxy environment
+      - name: Download OWASP ZAP Proxy
+        run: |
+          wget https://github.com/zaproxy/zaproxy/releases/download/v2.15.0/ZAP_2.15.0_Crossplatform.zip
+          unzip ZAP_2.15.0_Crossplatform.zip
+          cd ZAP_2.15.0
+
+      - name: Build Image
+        run: docker compose build
+      - name: Launch app
+        run: docker compose up --detach
+      - name: Check containers
+        run: docker ps
+      - name: Wait for app to be ready
+        run: |
+          until curl -s http://localhost:5002; do
+            echo "Waiting for the app to start..."
+            sleep 5
+          done
+
+      # Step 3: Run OWASP ZAP against the target URL and save the report
+      - name: Run OWASP ZAP Scan
+        env:
+          ZAP_URL: 'http://localhost:5002'
+        run: |
+          cd ZAP_2.15.0
+          ./zap.sh -cmd -quickurl "$ZAP_URL" -quickout /home/runner/work/vampi-tests/vampi-tests/ZAP_2.15.0/zapout.json
+
+      # Step 4: Upload the report as an artifact
+      - name: Upload ZAP Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-proxy-report
+          path: /home/runner/work/vampi-tests/vampi-tests/ZAP_2.15.0/zapout.json
