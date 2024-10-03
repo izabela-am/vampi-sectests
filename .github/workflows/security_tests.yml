@@ -70,11 +70,11 @@ jobs:
           ZAP_URL: 'http://localhost:5002'
         run: |
           cd ZAP_2.15.0
-          ./zap.sh -cmd -quickurl "$ZAP_URL" -quickout /home/runner/work/vampi-tests/vampi-tests/ZAP_2.15.0/zapout.json
+          ./zap.sh -cmd -quickurl "$ZAP_URL" -quickout /home/runner/work/vampi-sectests/vampi-sectests/ZAP_2.15.0
           pwd
       # Step 4: Upload the report as an artifact
       - name: Upload ZAP Report
         uses: actions/upload-artifact@v4
         with:
           name: zap-proxy-report
-          path: /home/runner/work/vampi-tests/vampi-tests/ZAP_2.15.0/zapout.json
+          path: /home/runner/work/vampi-sectests/vampi-sectests/ZAP_2.15.0
