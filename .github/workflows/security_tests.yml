@@ -8,7 +8,7 @@ on:
     
 jobs:
   sast:
-    name: semgrep
+    name: sast/semgrep
     runs-on: ubuntu-latest
     container:
       image: returntocorp/semgrep
@@ -38,6 +38,7 @@ jobs:
         if: always()
 
   dast:
+    name: dast/zap
     runs-on: ubuntu-latest
     steps:
       # Step 1: Checkout the repository
