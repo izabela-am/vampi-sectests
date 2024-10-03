@@ -1,93 +1,199 @@
-# VAmPI
-**The Vulnerable API** *(Based on OpenAPI 3)*
-![vampi](https://i.imgur.com/zR0quKf.jpg)
+# Ferramentas de Segurança na Pipeline CI/CD
 
-[![Docker Image CI](https://github.com/erev0s/VAmPI/actions/workflows/docker-image.yml/badge.svg)](https://github.com/erev0s/VAmPI/actions/workflows/docker-image.yml) ![Docker Pulls](https://img.shields.io/docker/pulls/erev0s/vampi)
+## Introdução
+Este repositório demonstra como integrar ferramentas de análise estática (SAST) e análise dinâmica (DAST) em uma pipeline CI/CD usando GitHub Actions.
 
+## Objetivo
+Os principais objetivo de implementações desse tipo são:
+- Identificar vulnerabilidades na codebase antes que possam ser exploradas em produção;
+- Melhorar a postura geral de segurança da aplicação;
+- Automatizar certas verificações de segurança para agilizar o processo de desenvolvimento e dar escala à times de segurança.
 
-VAmPI is a vulnerable API made with Flask and it includes vulnerabilities from the OWASP top 10 vulnerabilities for APIs. It was created as I wanted a vulnerable API to evaluate the efficiency of tools used to detect security issues in APIs. It includes a switch on/off to allow the API to be vulnerable or not while testing. This allows to cover better the cases for false positives/negatives. VAmPI can also be used for learning/teaching purposes. You can find a bit more details about the vulnerabilities in [erev0s.com](https://erev0s.com/blog/vampi-vulnerable-api-security-testing/).
+## Implementação do Workflow
 
+O workflow do GitHub Actions é estruturada da seguinte forma:
+1. **Eventos**
+   - O workflow é disparado nos eventos de `push` e `pull_request` no repositório da aplicação.
 
-#### Features
- - Based on OWASP Top 10 vulnerabilities for APIs.
- - OpenAPI3 specs and Postman Collection included.
- - Global switch on/off to have a vulnerable environment or not.
- - Token-Based Authentication (Adjust lifetime from within app.py)
- - Available Swagger UI to directly interact with the API
+2. **Jobs**
+   - **Build:** O primeiro job faz o build da aplicação.
+   - **SAST:** Após a conclusão do job de build, os testes de SAST são executados. Este job analisa o código estaticamente.
+   - **DAST:** Uma vez que o job SAST é concluído com sucesso, a verificação DAST é executada para identificar vulnerabilidades em tempo de execução. Por se tratar de um teste dinâmico, scans DAST geralmente levam um pouco mais de tempo para executar que scans SAST.
 
-VAmPI's flow of actions is going like this: an unregistered user can see minimal information about the dummy users included in the API. A user can register and then login to be allowed using the token received during login to post a book. For a book posted the data accepted are the title and a secret about that book. Each book is unique for every user and only the owner of the book should be allowed to view the secret.
+Vale ressaltar que não foram configurados rulesets customizados. Os scans estão rodando com suas configurações padrão e, portanato, não estão 100% otimizados.
 
-A quick rundown of the actions included can be seen in the following table:
+## Ferramentas Usadas
+1. **SAST :: Semgrep**
+   - **Objetivo:** Ferramentas SAST analisam o código em busca de vulnerabilidades sem executar a aplicação. Elas ajudam a identificar problemas diversos (ex.: SQLi, XSS, Clickjacking, etc) no código.
+   - **Implementação:** A ferramenta SAST (Semgrep) está integrada no workflow do GitHub Actions. O workflow ignora qualquer PR aberto pelo DependaBot.
+```yaml
+sast:
+    name: sast/semgrep
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep
+    if: (github.actor != 'dependabot[bot]')
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-| **Action** |            **Path**           |                     **Details**                    |
-|:----------:|:-----------------------------:|:--------------------------------------------------:|
-|     GET    |           /createdb           | Creates and populates the database with dummy data |
-|     GET    |               /               |                     VAmPI home                     |
-|     GET    |           /users/v1           |      Displays all users with basic information     |
-|     GET    |        /users/v1/_debug       |         Displays all details for all users         |
-|    POST    |       /users/v1/register      |                  Register new user                 |
-|    POST    |        /users/v1/login        |                   Login to VAmPI                   |
-|     GET    |      /users/v1/{username}     |              Displays user by username             |
-|   DELETE   |      /users/v1/{username}     |       Deletes user by username (Only Admins)       |
-|     PUT    |   /users/v1/{username}/email  |             Update a single users email            |
-|     PUT    | /users/v1/{username}/password |                Update users password               |
-|     GET    |           /books/v1           |                 Retrieves all books                |
-|    POST    |           /books/v1           |                    Add new book                    |
-|     GET    |        /books/v1/{book}       |      Retrieves book by title along with secret     |
+      - name: Perform Semgrep Analysis
+        run: semgrep scan -q --sarif --config auto . > semgrep-results.sarif
 
-For more details you can either run VAmPI and visit `http://127.0.0.1:5000/ui/` or use a service like the [swagger editor](https://editor.swagger.io) supplying the OpenAPI specification which can be found in the directory `openapi_specs`.
+      - name: Save SARIF results as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: semgrep-scan-results
+          path: semgrep-results.sarif
 
+      - name: Upload SARIF result to the GitHub Security Dashboard
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: semgrep-results.sarif
+        if: always()
+```
 
-#### List of Vulnerabilities
- - SQLi Injection
- - Unauthorized Password Change
- - Broken Object Level Authorization
- - Mass Assignment
- - Excessive Data Exposure through debug endpoint
- - User and Password Enumeration
- - RegexDOS (Denial of Service)
- - Lack of Resources & Rate Limiting
- - JWT authentication bypass via weak signing key
+2. **DAST :: ZAP**
+   - **Objetivo:** Ferramentas DAST testam a aplicação em tempo de execução em busca de vulnerabilidades, simulando ataques. Elas identificam falhas como problemas de authZ e authN, gerenciamento inadequado de sessões e configurações inseguras no ambiente.
+   - **Implementação:** A ferramenta DAST (ZAP) também está integrada no workflow do GitHub Actions. Ela analisa a aplicação em busca de vulnerabilidades, e os resultados são escritos em um arquivo JSON.
+```yaml
+  dast:
+    name: dast/zap
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
+      - name: Download OWASP ZAP Proxy
+        run: |
+          wget https://github.com/zaproxy/zaproxy/releases/download/v2.15.0/ZAP_2.15.0_Crossplatform.zip
+          unzip ZAP_2.15.0_Crossplatform.zip
+          cd ZAP_2.15.0
 
+      - name: Build Image
+        run: docker compose build
+      - name: Launch app
+        run: docker compose up --detach
+      - name: Check containers
+        run: docker ps
+      - name: Wait for app to be ready
+        run: |
+          until curl -s http://localhost:5002; do
+            echo "Waiting for the app to start..."
+            sleep 5
+          done
 
- ## Run it
-It is a Flask application so in order to run it you can install all requirements and then run the `app.py`.
-To install all requirements simply run `pip3 install -r requirements.txt` and then `python3 app.py`.
+      - name: Run OWASP ZAP Scan
+        env:
+          ZAP_URL: 'http://localhost:5002'
+        run: |
+          cd ZAP_2.15.0
+          ./zap.sh -cmd -quickurl "$ZAP_URL" -quickout /home/runner/work/vampi-sectests/vampi-sectests/ZAP_2.15.0/zap-proxy-report.json
 
-Or if you prefer you can also run it through docker or docker compose.
+      - name: Upload ZAP Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-proxy-report
+          path: /home/runner/work/vampi-sectests/vampi-sectests/ZAP_2.15.0/zap-proxy-report.json
+```
 
- #### Run it through Docker
+## Insumos
+Os insumos dos scans são:
+- Para o SAST, devido ao Semgrep servir os resultados de scan em formato SARIF, o GitHub consegue importar esses dados e organiza-los na aba de [Security](https://github.com/izabela-am/vampi-sectests/security/code-scanning) do repositório.
+ 
+- No caso do DAST, como o ZAP não tem suporte para resultados em SARIF, o GitHub não consegue fazer esse tratamento. É possível fazer o download do JSON com as informações através dos logs das Actions bem-sucedidas. Para facilitar, esse é um output de um dos scans feitos na aplicação:
 
- - Available in [Dockerhub](https://hub.docker.com/r/erev0s/vampi)
-~~~~
-docker run -p 5000:5000 erev0s/vampi:latest
-~~~~
+```json
+{
+	"@programName": "ZAP",
+	"@version": "2.15.0",
+	"@generated": "Thu, 3 Oct 2024 18:25:37",
+	"site":[ 
+		{
+			"@name": "http://localhost:5002",
+			"@host": "localhost",
+			"@port": "5002",
+			"@ssl": "false",
+			"alerts": [ 
+				{
+					"pluginid": "10036",
+					"alertRef": "10036",
+					"alert": "Server Leaks Version Information via \"Server\" HTTP Response Header Field",
+					"name": "Server Leaks Version Information via \"Server\" HTTP Response Header Field",
+					"riskcode": "1",
+					"confidence": "3",
+					"riskdesc": "Low (High)",
+					"desc": "<p>The web/application server is leaking version information via the \"Server\" HTTP response header. Access to such information may facilitate attackers identifying other vulnerabilities your web/application server is subject to.</p>",
+					"instances":[ 
+						{
+							"uri": "http://localhost:5002",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "Werkzeug/2.2.3 Python/3.11.10",
+							"otherinfo": ""
+						},
+						{
+							"uri": "http://localhost:5002/robots.txt",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "Werkzeug/2.2.3 Python/3.11.10",
+							"otherinfo": ""
+						},
+						{
+							"uri": "http://localhost:5002/sitemap.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "Werkzeug/2.2.3 Python/3.11.10",
+							"otherinfo": ""
+						}
+					],
+					"count": "3",
+					"solution": "<p>Ensure that your web server, application server, load balancer, etc. is configured to suppress the \"Server\" header or provide generic details.</p>",
+					"otherinfo": "",
+					"reference": "<p>https://httpd.apache.org/docs/current/mod/core.html#servertokens</p><p>https://learn.microsoft.com/en-us/previous-versions/msp-n-p/ff648552(v=pandp.10)</p><p>https://www.troyhunt.com/shhh-dont-let-your-response-headers/</p>",
+					"cweid": "200",
+					"wascid": "13",
+					"sourceid": "6"
+				},
+				{
+					"pluginid": "10021",
+					"alertRef": "10021",
+					"alert": "X-Content-Type-Options Header Missing",
+					"name": "X-Content-Type-Options Header Missing",
+					"riskcode": "1",
+					"confidence": "2",
+					"riskdesc": "Low (Medium)",
+					"desc": "<p>The Anti-MIME-Sniffing header X-Content-Type-Options was not set to 'nosniff'. This allows older versions of Internet Explorer and Chrome to perform MIME-sniffing on the response body, potentially causing the response body to be interpreted and displayed as a content type other than the declared content type. Current (early 2014) and legacy versions of Firefox will use the declared content type (if one is set), rather than performing MIME-sniffing.</p>",
+					"instances":[ 
+						{
+							"uri": "http://localhost:5002",
+							"method": "GET",
+							"param": "x-content-type-options",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": "This issue still applies to error type pages (401, 403, 500, etc.) as those pages are often still affected by injection issues, in which case there is still concern for browsers sniffing pages away from their actual content type.\nAt \"High\" threshold this scan rule will not alert on client or server error responses."
+						}
+					],
+					"count": "1",
+					"solution": "<p>Ensure that the application/web server sets the Content-Type header appropriately, and that it sets the X-Content-Type-Options header to 'nosniff' for all web pages.</p><p>If possible, ensure that the end user uses a standards-compliant and modern web browser that does not perform MIME-sniffing at all, or that can be directed by the web application/web server to not perform MIME-sniffing.</p>",
+					"otherinfo": "<p>This issue still applies to error type pages (401, 403, 500, etc.) as those pages are often still affected by injection issues, in which case there is still concern for browsers sniffing pages away from their actual content type.</p><p>At \"High\" threshold this scan rule will not alert on client or server error responses.</p>",
+					"reference": "<p>https://learn.microsoft.com/en-us/previous-versions/windows/internet-explorer/ie-developer/compatibility/gg622941(v=vs.85)</p><p>https://owasp.org/www-community/Security_Headers</p>",
+					"cweid": "693",
+					"wascid": "15",
+					"sourceid": "6"
+				}
+			]
+		}
+	]
+}
 
-[Note: if you run Docker on newer versions of the MacOS, use `-p 5001:5000` to avoid conflicting with the AirPlay Receiver service. Alternatively, you could disable the AirPlay Receiver service in your System Preferences -> Sharing settings.]
-
-  #### Run it through Docker Compose
-`docker-compose` contains two instances, one instance with the secure configuration on port 5001 and another with insecure on port 5002:
-~~~~
-docker-compose up -d
-~~~~
-
-## Available Swagger UI :rocket:
-Visit the path `/ui` where you are running the API and a Swagger UI will be available to help you get started!
-~~~~
-http://127.0.0.1:5000/ui/
-~~~~
-
-## Customizing token timeout and vulnerable environment or not
-If you would like to alter the timeout of the token created after login or if you want to change the environment **not** to be vulnerable then you can use a few ways depending how you run the application.
-
- - If you run it like normal with `python3 app.py` then all you have to do is edit the `alive` and `vuln` variables defined in the `app.py` itself. The `alive` variable is measured in seconds, so if you put `100`, then the token expires after 100 seconds. The `vuln` variable is like boolean, if you set it to `1` then the application is vulnerable, and if you set it to `0` the application is not vulnerable.
- - If you run it through Docker, then you must either pass environment variables to the `docker run` command or edit the `Dockerfile` and rebuild. 
-   - Docker run example: `docker run -d -e vulnerable=0 -e tokentimetolive=300 -p 5000:5000 erev0s/vampi:latest`
-     - One nice feature to running it this way is you can startup a 2nd container with `vulnerable=1` on a different port and flip easily between the two.
-
-   - In the Dockerfile you will find two environment variables being set, the `ENV vulnerable=1` and the `ENV tokentimetolive=60`. Feel free to change it before running the docker build command.
-
-
- [Picture from freepik - www.freepik.com](https://www.freepik.com/vectors/party)
+```
 
