@@ -104,7 +104,9 @@ sast:
 
 ## Insumos
 Os insumos dos scans são:
-- Para o SAST, devido ao Semgrep servir os resultados de scan em formato SARIF, o GitHub consegue importar esses dados e organiza-los na aba de [Security](https://github.com/izabela-am/vampi-sectests/security/code-scanning) do repositório.
+- Para o SAST, devido ao Semgrep servir os resultados de scan em formato SARIF, o GitHub consegue importar esses dados e organiza-los na aba de [Security](https://github.com/izabela-am/vampi-sectests/security/code-scanning) do repositório. Um exemplo:
+
+![semgrep scan results](https://i.imgur.com/fgODlfO.png)
  
 - No caso do DAST, como o ZAP não tem suporte para resultados em SARIF, o GitHub não consegue fazer esse tratamento. É possível fazer o download do JSON com as informações através dos logs das Actions bem-sucedidas. Para facilitar, esse é um output de um dos scans feitos na aplicação:
 
