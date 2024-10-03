@@ -71,7 +71,7 @@ jobs:
         run: |
           cd ZAP_2.15.0
           ./zap.sh -cmd -quickurl "$ZAP_URL" -quickout /home/runner/work/vampi-tests/vampi-tests/ZAP_2.15.0/zapout.json
-
+          pwd
       # Step 4: Upload the report as an artifact
       - name: Upload ZAP Report
         uses: actions/upload-artifact@v4
